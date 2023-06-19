@@ -1,0 +1,131 @@
+name: C/C++ CI with autoconf_release_builder.py
+
+on:
+  push:
+    branches: [ "trunk", "devel", "feature-ubuntu-support" ]
+  pull_request:
+    branches: [ "trunk", "devel", "feature-ubuntu-support" ]
+# https://gist.github.com/Daniel-ltw/552b90800b07c22e4a83dfa68ada6318
+  repository_dispatch:
+    types: 
+      - star
+      - push
+      
+jobs:
+  os_matrix:
+    strategy:
+      matrix:
+        os:
+        - ubuntu-latest
+        # - macos-latest
+        # - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name:  update, upgrade and install full
+      run:   |
+         if [ "$RUNNER_OS" == "Linux" ]; then
+              # sudo apt update
+              # sudo apt upgrade
+              sudo apt install libgmp-dev libmpfr-dev r-mathlib libplot-dev libncurses-dev libpq-dev libreadline-dev libgsl-dev
+         elif [ "$RUNNER_OS" == "macOS" ]; then
+              : # softwareupdate -i -a
+         elif [ "$RUNNER_OS" == "Windows" ]; then
+              choco install libgmp-dev libmpfr-dev r-mathlib libplot-dev libncurses-dev libpq-dev libreadline-dev libgsl-dev
+              vcpkg libgmp-dev libmpfr-dev r-mathlib libplot-dev libncurses-dev libpq-dev libreadline-dev libgsl-dev
+         else
+              echo "$RUNNER_OS not supported"
+              exit 1
+         fi
+    - uses: actions/checkout@v3
+    - uses: actions/checkout@v3
+      with:
+        repository: NevilleDNZ/algol68g-mirror
+        path: ${{ github.workspace }}/algol68g-mirror
+        # token: ${{ secrets.MYPAT }}
+
+    - name: bin/acrb_pkg_depends.sh
+      run: |
+        #( cd algol68g-mirror
+        #  tar -czvf ../algol68g_3.1.9.orig.tar.gz * # debian/ubuntu...
+        #  pwd; ls -l ../algol68g_3.1.9.orig.tar.gz
+        #)
+        $SHELL bin/acrb_pkg_build_depends.sh
+
+#    - name:  update, upgrade and install full
+#      run:   |
+#        whereis dpkg
+#        if [ "$RUNNER_OS" == "Linux" ]; then
+#            sudo apt update
+#            sudo apt upgrade
+#            sudo apt install cdbs libgmp-dev libmpfr-dev r-mathlib libplot-dev libncurses-dev libpq-dev libreadline-dev libgsl-dev
+#        elif [ "$RUNNER_OS" == "macOS" ]; then
+#            : # softwareupdate -i -a
+#        elif [ "$RUNNER_OS" == "Windows" ]; then
+#            choco install libgmp-dev libmpfr-dev r-mathlib libplot-dev libncurses-dev libpq-dev libreadline-dev libgsl-dev
+#            vcpkg libgmp-dev libmpfr-dev r-mathlib libplot-dev libncurses-dev libpq-dev libreadline-dev libgsl-dev
+#        else
+#            echo "$RUNNER_OS not supported"
+#            exit 1
+#        fi
+
+    - name: 'Prep Artifact'
+      run: |
+        mkdir -p ${{ github.workspace }}/artifact/${{ matrix.os }}
+
+#    - name: configure
+#      run: |
+#        cd ${{ github.workspace }}/algol68g-mirror
+#        ./configure
+#    - name: make
+#      run: |
+#        cd ${{ github.workspace }}/algol68g-mirror;
+#        make
+    - name: 'gpg --import NEVILLED_ALGOL68_AT_SGR_A_NET_EXP_2030_06_13'
+      run: |
+        echo "${{ secrets.NEVILLED_ALGOL68_AT_SGR_A_NET_EXP_2030_06_13 }}" | gpg --import
+        gpg --list-keys
+    - name: 'autoconf_release_builder.py'
+      run: |
+        cd ${{ github.workspace }}/algol68g-mirror
+        . ../bin/acrb_pkg_build_id.sh --Build --os_release --PACKAGE_VERSION
+        
+        bld_opts=""
+
+        python ../bin/autoconf_release_builder.py \
+          --Build $Build-$os_release \
+          --package_builder /usr/bin/dpkg-buildpackage \
+          --package_manager /usr/bin/dpkg \
+          --Source https://jmvdveer.home.xs4all.nl/algol68g-$PACKAGE_VERSION.tar.gz \
+          --DOWNLOAD_PAGE https://jmvdveer.home.xs4all.nl/en.download.algol-68-genie-current.html \
+          --DOCUMENTATION_PAGE https://jmvdveer.home.xs4all.nl/en.algol-68-genie.html
+        head -99 debian/[^L]* || true
+    - name: ../bin/acrb_pkg_build.sh
+      run: |
+        cd ${{ github.workspace }}/algol68g-mirror
+        . ../bin/acrb_pkg_build_id.sh --Build --os_release --PACKAGE_VERSION
+        $SHELL ../bin/acrb_pkg_build.sh $Build $os_release $PACKAGE_VERSION ../artifact/${{ matrix.os }}
+        ./a68g -V
+#    - name: build release
+#      run:   |
+#          cd ${{ github.workspace }}/algol68g-mirror
+#          if [ "$RUNNER_OS" == "Linux" ]; then
+#              # rpmbuild -bb --with full --without tiny --build-in-place algol68g-3.1.9-23221.spec
+#              dpkg-buildpackage -rfakeroot -uc -b
+#              ./a68g -V
+#              cp -p ../algol68g_3.1.9-23410_amd64.deb ${{ github.workspace }}/artifact/${{ matrix.os }}
+#          elif [ "$RUNNER_OS" == "macOS" ]; then
+#              : # softwareupdate -i -a
+#          elif [ "$RUNNER_OS" == "Windows" ]; then
+#              choco install libgmp-dev libmpfr-dev r-mathlib libplot-dev libncurses-dev libpq-dev libreadline-dev libgsl-dev
+#              vcpkg libgmp-dev libmpfr-dev r-mathlib libplot-dev libncurses-dev libpq-dev libreadline-dev libgsl-dev
+#          else
+#              echo "$RUNNER_OS not supported"
+#              exit 1
+#          fi
+
+    - name: 'Upload Artifacts'
+      uses: actions/upload-artifact@v3
+      with:
+        name: algol68g-artifact
+        path: ${{ github.workspace }}/artifact/**/*
+        retention-days: 16
